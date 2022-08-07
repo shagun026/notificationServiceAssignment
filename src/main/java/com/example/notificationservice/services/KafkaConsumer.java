@@ -1,5 +1,6 @@
 package com.example.notificationservice.services;
 
+import com.example.notificationservice.entities.SearchEntity;
 import com.example.notificationservice.entities.SmsRequest;
 import com.example.notificationservice.models.RequestBody.ThirdPartyRequestBody;
 import com.example.notificationservice.models.ResponseBody.ThirdPartyResponseBody;
@@ -14,6 +15,7 @@ import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Optional;
@@ -30,46 +32,62 @@ public class KafkaConsumer {
     private final NotificationsService notificationService;
     private final BlacklistService blacklistService;
     private final SmsRepository smsRepository;
+    private final SearchService searchService;
 
     @Autowired
     public KafkaConsumer(
-            NotificationsService notificationService,BlacklistService blacklistService,SmsRepository smsRepository) {
+            NotificationsService notificationService, BlacklistService blacklistService, SmsRepository smsRepository,
+            SearchService searchService) {
         this.notificationService = notificationService;
         this.blacklistService = blacklistService;
         this.smsRepository = smsRepository;
+        this.searchService = searchService;
     }
 
-    @KafkaListener(topics = TOPIC,groupId = "groupId")
-    private void consume(Integer requestId){
-        Optional<SmsRequest> smsRequest = notificationService.getSmsDetails(requestId);
+    @KafkaListener(topics = TOPIC, groupId = "groupId")
+    private void consume(Integer requestId) {
+        Optional<SmsRequest> optionalSmsRequest = notificationService.getSmsDetails(requestId);
 
-        boolean isBlacklisted = blacklistService.isBlacklisted(smsRequest.get().getPhoneNumber());
+        SmsRequest smsRequest = optionalSmsRequest.get();
+        boolean isBlacklisted = blacklistService.isBlacklisted(smsRequest.getPhoneNumber());
 
         ArrayList<ThirdPartyRequestBody> requestBody = new ArrayList<>();
 
-        ThirdPartyRequestBody thirdPartyRequestBody = buildRequestBody(smsRequest.get());
+        ThirdPartyRequestBody thirdPartyRequestBody = buildRequestBody(smsRequest);
         requestBody.add(thirdPartyRequestBody);
-        System.out.println("req body : " + requestBody);
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.add("key",KEY);
+        headers.add("key", KEY);
         headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
 
-        HttpEntity<ArrayList<ThirdPartyRequestBody>> request = new HttpEntity<>(requestBody,headers);
+        HttpEntity<ArrayList<ThirdPartyRequestBody>> request = new HttpEntity<>(requestBody, headers);
 
-        if(!isBlacklisted){
+        if (!isBlacklisted) {
+
             ThirdPartyResponseBody thirdPartyResponseBody = restTemplate
                     .exchange("https://api.imiconnect.in/resources/v1/messaging", HttpMethod.POST,
                             request, ThirdPartyResponseBody.class).getBody();
-            if(thirdPartyResponseBody.getResponse().get(0).getCode().equals("1001")){
-                smsRequest.get().setStatus("SUCCESS");
-                smsRepository.save(smsRequest.get());
+            if (thirdPartyResponseBody.getResponse().get(0).getCode().equals("1001")) {
+                smsRequest.setStatus("SUCCESS");
+                smsRepository.save(smsRequest);
+            } else {
+                smsRequest.setStatus("FAILURE");
+                smsRepository.save(smsRequest);
             }
-            else{
-                smsRequest.get().setStatus("FAILURE");
-                smsRepository.save(smsRequest.get());
-            }
+
+            SearchEntity searchEntity = SearchEntity
+                    .builder()
+                    .id(smsRequest.getId())
+                    .phoneNumber(smsRequest.getPhoneNumber())
+                    .message(smsRequest.getMessage())
+                    .status(smsRequest.getStatus())
+                    .createdAt(LocalDateTime.now())
+                    .build();
+
+            searchService.indexDetails(searchEntity);
         }
+
     }
 
     private ThirdPartyRequestBody buildRequestBody(SmsRequest smsRequest) {
