@@ -7,12 +7,10 @@ import org.springframework.data.elasticsearch.repository.ElasticsearchRepository
 
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 public interface SearchRepository extends ElasticsearchRepository<SearchEntity, Integer> {
     Page<SearchEntity> findByPhoneNumberAndCreatedAtBetweenOrderByCreatedAtDesc(String phoneNumber,
                                                                                 LocalDateTime startTime,
                                                                                 LocalDateTime endTime, Pageable pageable);
-
-    Page<SearchEntity> findByMessage(String text, Pageable pageable);
+    Page<SearchEntity> findByMessageContaining(String message, Pageable pageable);
 }

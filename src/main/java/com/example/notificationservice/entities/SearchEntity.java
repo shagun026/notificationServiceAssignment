@@ -9,7 +9,6 @@ import lombok.NoArgsConstructor;
 import org.springframework.data.elasticsearch.annotations.*;
 
 import javax.persistence.Id;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Document(indexName = "sms_details")
